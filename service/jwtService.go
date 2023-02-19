@@ -5,34 +5,49 @@ import (
 	"github.com/gofiber/fiber/v2"
 	jwtware "github.com/gofiber/jwt/v3"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
+	database "jwtauth/database"
 	"jwtauth/model"
 	"time"
 )
 
 const secretKey = "secret"
 
-var list = map[string]string{} // temporary db
-
-var tokenList = make(map[string]string, 10) // // temporary db
-
-func GenerateToken(ctx *fiber.Ctx) map[string]string {
+func Register(ctx *fiber.Ctx) (map[string]string, error) {
 	user := new(model.User)
 
 	err := ctx.BodyParser(&user)
 
 	if err != nil {
-		return nil
+		return nil, err
 	}
+
+	user.ID = uuid.New()
+
+	database.Database.Table("users").Create(&user)
+
+	token := generateToken(*user)
+
+	return token, nil
+
+}
+
+func generateToken(user model.User) map[string]string {
 
 	jwtware.New(jwtware.Config{SigningKey: []byte(secretKey)})
 
-	claims := setClaimsByUser(*user)
+	claims := setClaimsByUser(user)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	t, _ := token.SignedString([]byte("secret"))
 
-	list[user.Username] = user.Password
-	tokenList[user.Username] = t
+	var dbToken model.Token
+
+	dbToken.ID = uuid.New()
+	dbToken.Token = t
+	dbToken.UserId = user.ID
+
+	database.Database.Table("tokens").Create(&dbToken)
 
 	return map[string]string{"token": t}
 }
@@ -58,21 +73,6 @@ func CheckToken(ctx *fiber.Ctx) bool {
 	if !isTokenValid(token) {
 		return false
 	}
-	if !checkClaimUser(token) {
-		return false
-	}
-	return true
-
-}
-
-func checkClaimUser(tokenString string) bool {
-	//token := getToken(tokenString)
-	//
-	//claimsMap := token.Claims.(jwt.MapClaims)
-	//
-	//username := claimsMap["username"]
-
-	//TODO:	check from db and compare request token and user token
 	return true
 
 }
@@ -110,9 +110,40 @@ func getToken(tokenString string) *jwt.Token {
 	if err != nil {
 		return nil
 	}
-	//claimsMap := token.Claims.(jwt.MapClaims)
-	//
-	//username := claimsMap["username"]
-
 	return token
+}
+
+func LoginToken(ctx *fiber.Ctx) (map[string]string, error) {
+
+	var request model.User
+	var user model.User
+
+	ctx.BodyParser(&request)
+
+	result := database.Database.Table("users").First(&user, "username=? AND password =?", request.Username, request.Password)
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	var tokenModel model.Token
+
+	result = database.Database.Table("tokens").First(&tokenModel, "user_id=?", user.ID)
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	isValid := isTokenValid(tokenModel.Token)
+
+	if !isValid {
+		return generateToken(user), nil
+	}
+
+	returnMap := make(map[string]string)
+
+	returnMap["token"] = tokenModel.Token
+
+	return returnMap, nil
+
 }

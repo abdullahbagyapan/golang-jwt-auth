@@ -2,6 +2,7 @@ package main
 
 import (
 	fiber "github.com/gofiber/fiber/v2"
+	"jwtauth/database"
 	"jwtauth/service"
 	"net/http"
 )
@@ -10,10 +11,23 @@ func main() {
 
 	app := fiber.New()
 
-	app.Use("/register", func(ctx *fiber.Ctx) error {
-		token := service.GenerateToken(ctx)
+	database.Connect()
 
-		if token == nil {
+	app.Use("/register", func(ctx *fiber.Ctx) error {
+		token, err := service.Register(ctx)
+
+		if err != nil {
+			return ctx.SendStatus(http.StatusBadRequest)
+		}
+
+		return ctx.JSON(token)
+
+	})
+
+	app.Use("/login", func(ctx *fiber.Ctx) error {
+		token, err := service.LoginToken(ctx)
+
+		if err != nil {
 			return ctx.SendStatus(http.StatusBadRequest)
 		}
 
